@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
-import configparser 
+import configparser
+import re 
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -36,6 +37,8 @@ def fetch_data(url):
         purl = box.find('img')['src']
         channel = box.find('dt',
                            class_="moviepromo__channel").find('img')['alt']
+        description = box.find('p', class_="moviepromo__description").find('span').string
+        
         timespans = box.find('dd', class_="moviepromo__time").find_all('span')
         time_list = []
         for span in timespans:
@@ -46,6 +49,7 @@ def fetch_data(url):
         film.photo_url = purl
         film.channel = channel
         film.time = time
+        film.year = parse_year(description)
         movies.append(film)
     return movies
 
@@ -71,6 +75,16 @@ def clean_name(raw):
     return new.strip()
 
 
+def parse_year(description):
+    """Parses the movie year from the description. If not found, returns empty string."""
+   
+    expr = re.compile(r"\d{4}")
+    years = expr.findall(description)
+    if years:
+        return years[0]
+    else:
+        return ""
+
 
 def update_movies(movies):
     """ Updates info for the movies"""
@@ -78,19 +92,23 @@ def update_movies(movies):
     for movie in movies:
         update_info(movie)
 
+
 def update_info(movie):
     """ Fetches given movies info from OMDb api"""
     plot = 'short'
     name = movie.name.replace(' ', '+')
 
-    call = ("http://www.omdbapi.com/?apikey=" + API_KEY + "&t=" + name) 
-    # TODO: Year to search and handle the not working titles
-    # +  '&y=' + movie.year)
-    print(call)
-    #response = requests.get(call)
-    #data = response.json()
-    #print(data['Response'])
+    call = ("http://www.omdbapi.com/?apikey=" + API_KEY + "&t=" + name
+            +  '&y=' + movie.year)
+    #print(call)
+    response = requests.get(call)
+    data = response.json()
+    if (data['Response'] == 'True'):
+        print(data['Title'])
+    else:
+        print("Ei toiminut")
     #print(data)
+    # tutki http://www.leffatykki.com/xml/ilta/tvssa
 
 
 

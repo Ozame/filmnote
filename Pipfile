@@ -9,6 +9,7 @@ url = "https://pypi.python.org/simple"
 
 requests = "*"
 "beautifulsoup4" = "*"
+flask = "*"
 
 
 [requires]
