@@ -2,10 +2,13 @@ import requests
 from bs4 import BeautifulSoup
 import configparser
 import re 
+import time
 
 config = configparser.ConfigParser()
 config.read('config.ini')
 API_KEY = config['Default']['API_KEY']
+REGEX_YEAR = re.compile(r"\d{4}")
+REGEX_INFO = re.compile(r"\(.*?\)")
 
 
 class Film():
@@ -22,6 +25,7 @@ class Film():
         self.photo_url = ""
         self.channel = ""
         self.time = ""
+        self.keyword = ""
 
     def __str__(self):
         return "{} ({})".format(self.name, self.year)
@@ -37,7 +41,8 @@ def fetch_data(url):
         purl = box.find('img')['src']
         channel = box.find('dt',
                            class_="moviepromo__channel").find('img')['alt']
-        description = box.find('p', class_="moviepromo__description").find('span').string
+        description = 
+            box.find('p', class_="moviepromo__description").find('span').string
         
         timespans = box.find('dd', class_="moviepromo__time").find_all('span')
         time_list = []
@@ -50,6 +55,7 @@ def fetch_data(url):
         film.channel = channel
         film.time = time
         film.year = parse_year(description)
+        film.keyword = parse_keyword(description)
         movies.append(film)
     return movies
 
@@ -76,53 +82,121 @@ def clean_name(raw):
 
 
 def parse_year(description):
-    """Parses the movie year from the description. If not found, returns empty string."""
+    """Parses the movie year from the description. If not found, 
+    returns empty string."""
    
-    expr = re.compile(r"\d{4}")
-    years = expr.findall(description)
+    years = REGEX_YEAR.findall(description)
     if years:
         return years[0]
     else:
         return ""
 
 
-def update_movies(movies):
-    """ Updates info for the movies"""
+def parse_keyword(description):
+    """Tries to parse part of the movie title in the description's parenthesis 
+    section
 
-    for movie in movies:
-        update_info(movie)
+    The original title is usually in the description's beginning in parenthesis, 
+    but this is not a standard, so this might be useless
+    """
+
+    info = REGEX_INFO.findall(description)
+    key = ""
+    if not info:
+        return ""
+    info = info[0][1:-1]
+
+    if info is 'U':
+        return ""
+
+    # TODO: Some titles have - before the finnish title, check for it?
+    try:
+        ind_slash = info.index('/')
+    except ValueError:
+        ind_slash = 500
+    try:
+        ind_comma = info.index(',')
+    except ValueError:
+        ind_comma = 500
+
+    if ind_slash < ind_comma:
+        key = info[:ind_slash]
+    elif ind_comma < ind_slash:
+        key = info[:ind_comma]
+    else:
+        key = info
+
+    m = REGEX_YEAR.search(key)
+    if m:
+        key = key[:m.start()]
+    return key.strip()
 
 
-def update_info(movie):
-    """ Fetches given movies info from OMDb api"""
-    plot = 'short'
-    name = movie.name.replace(' ', '+')
 
+def create_request(movie, useKeyword=False):
+    """Creates the api request with given movies title and year"""
+
+    # plot = 'short'
+    if useKeyword:
+        name = movie.keyword.replace(' ', '+') 
+    else:
+        name = movie.name.replace(' ', '+')
     call = ("http://www.omdbapi.com/?apikey=" + API_KEY + "&t=" + name
             +  '&y=' + movie.year)
-    #print(call)
-    response = requests.get(call)
-    data = response.json()
+    return call
+
+
+def request_data(movie, useKeyword=False):
+    """Requests the data from the api"""
+
+    call = create_request(movie, useKeyword)
+    try:
+        response = requests.get(call, timeout=0.1)
+        data = response.json()
+        return data
+    except requests.exceptions.Timeout:
+        return {"Response":"False","Error":"Movie not found!"}
+    
+def update_movies(movies):
+    """ Updates info for the movies
+    
+    Returns dict, {'updated':[], 'failed':[]}, where 'updated' contains 
+    succesfully updated movies, and 'failed' contains movies that 
+    couldn't be updated
+    """
+
+    movie_dict = {'updated':[], 'failed':[]}
+    for movie in movies:
+        time.sleep(0.2)
+        succesful_fetch = fetch_info(movie)
+        if succesful_fetch:
+            movie_dict['updated'].append(movie)
+        else:
+            movie_dict['failed'].append(movie)  
+
+    return movie_dict
+
+def fetch_info(movie):
+    """ Fetches given movie's info from OMDb api"""
+    
+    data = request_data(movie, False)
     if (data['Response'] == 'True'):
-        print(data['Title'])
+        set_info(movie, data)
     else:
-        print("Ei toiminut")
-    #print(data)
-    # tutki http://www.leffatykki.com/xml/ilta/tvssa
-
-
-
-
-
-
+        data = request_data(movie, True)
+        if (data['Response'] == 'True'):
+            set_info(movie, data)
+        else:
+            return False
+    return True
+   
 
 
 def main():
-    # a = "http://www.leffatykki.com/telkku/seuraava"
-    # b = "http://wwww.kake.fi"
-    # c = "http://www.telkku.com/tv-ohjelmat/2018-04-01/peruskanavat/koko-paiva/"
     x = "http://www.telkku.com/elokuvat"
     data = fetch_data(x)
+    #t = parse_keyword("(Police Academy 1984). Klassikkokomedia tarjoaa vauh")
+    #print(t)
     update_movies(data)
 
 
